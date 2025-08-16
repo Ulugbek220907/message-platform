@@ -1,37 +1,33 @@
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
+from fastapi import FastAPI, Request
 from pydantic import BaseModel
-import time
+import gspread
+from oauth2client.service_account import ServiceAccountCredentials
+from datetime import datetime
 
-app = FastAPI(title="Message Platform")
+app = FastAPI()
 
-# Allow requests from anywhere (adjust if you want to lock it down)
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# Google Sheets Setup
+scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+creds = ServiceAccountCredentials.from_json_keyfile_name("credentials.json", scope)
+client = gspread.authorize(creds)
 
-class MessageIn(BaseModel):
+# Open your sheet (replace with your sheet name)
+sheet = client.open("MessagePlatform").sheet1
+
+class Message(BaseModel):
     receiver: str
     name: str
     message: str
 
-# In-memory store { receiver_id: [ {name, message, time}, ... ] }
-STORE: dict[str, list[dict]] = {}
-
-@app.get("/")
-def root():
-    return {"ok": True, "service": "message-platform"}
-
 @app.post("/send")
-def send_message(msg: MessageIn):
-    payload = {"name": msg.name, "message": msg.message, "time": int(time.time() * 1000)}
-    STORE.setdefault(msg.receiver, []).append(payload)
-    return {"status": "Message sent!"}
+def send_message(msg: Message):
+    # Save to Google Sheets
+    now = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+    sheet.append_row([msg.receiver, msg.name, msg.message, now])
 
-@app.get("/messages/{receiver}")
-def get_messages(receiver: str):
-    return STORE.get(receiver, [])
+    # TODO: also handle delivering to Godot users (like before)
+    return {"status": "Message saved and sent!"}
+
+@app.get("/ping")
+def ping():
+    return {"status": "alive"}
